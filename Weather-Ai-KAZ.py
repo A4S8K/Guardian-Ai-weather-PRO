@@ -4,7 +4,7 @@ import requests
 from openai import OpenAI
 import plotly.express as px
 
-# 1. ТІЛДЕРГЕ АРНАЛҒАН СӨЗДІК
+# 1. КӨП ТІЛДІЛІК СӨЗДІГІ (Multi-language support)
 lang_dict = {
     "kk": {
         "title": "🌍 Guardian AI Weather PRO",
@@ -20,7 +20,8 @@ lang_dict = {
         "ai_btn": "ЖИ болжамын алу",
         "found": "Орын табылды",
         "not_found": "Қала табылмады немесе API қатесі",
-        "error_api": "Деректерді алу мүмкін болмады (API қатесі)."
+        "error_api": "Деректерді алу мүмкін болмады (API қатесі)",
+        "team": "Әзірлеушілер: Арслан Өмен, Иманғали Құрбанбек. Жетекшісі: Н.Әсілбай"
     },
     "ru": {
         "title": "🌍 Guardian AI Weather PRO",
@@ -36,7 +37,8 @@ lang_dict = {
         "ai_btn": "Получить прогноз ИИ",
         "found": "Место найдено",
         "not_found": "Город не найден или ошибка API",
-        "error_api": "Не удалось получить данные (Ошибка API)."
+        "error_api": "Не удалось получить данные (Ошибка API)",
+        "team": "Разработчики: Арслан Омен, Имангали Курбанбек. Руководитель: Н.Асильбай"
     },
     "en": {
         "title": "🌍 Guardian AI Weather PRO",
@@ -52,14 +54,14 @@ lang_dict = {
         "ai_btn": "Get AI Forecast",
         "found": "Location found",
         "not_found": "City not found or API error",
-        "error_api": "Could not retrieve data (API Error)."
+        "error_api": "Could not retrieve data (API Error)",
+        "team": "Developers: Arslan Omen, Imangali Kurbanbek. Supervisor: N.Asilbay"
     }
 }
 
-# 2. БЕТТІҢ КОНФИГУРАЦИЯСЫ
+# 2. ПЛАТФОРМА БАПТАУЛАРЫ
 st.set_page_config(page_title="Guardian AI Weather PRO", layout="wide")
 
-# Тілді таңдау
 with st.sidebar:
     st.header("Language / Тіл / Язык")
     sel_lang = st.selectbox("", ["Қазақша", "Русский", "English"])
@@ -73,25 +75,28 @@ t = lang_dict[lang_code]
 st.title(t["title"])
 st.markdown(f"### {t['subtitle']}")
 
-# 3. ҚАТЕЛЕРДІ ӨҢДЕЙТІН API ФУНКЦИЯЛАРЫ
+# 3. API ФУНКЦИЯЛАРЫ (Қателерді өңдеумен)
+def get_coordinates(city):
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&format=json"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return data['results'][0] if 'results' in data else None
+    except:
+        return None
+
 def get_weather_data(lat, lon):
     url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&timezone=auto"
     try:
         response = requests.get(url)
-        response.raise_for_status() # Статус кодын тексереді (404, 500 т.б.)
+        response.raise_for_status()
         return response.json()
     except Exception as e:
         st.error(f"{t['error_api']}: {e}")
         return None
 
-def get_coordinates(city):
-    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&format=json"
-    try:
-        res = requests.get(url).json()
-        return res['results'][0] if 'results' in res else None
-    except: return None
-
-# 4. НЕГІЗГІ ЛОГИКА
+# 4. НЕГІЗГІ ЖҰМЫС ЦИКЛІ
 city_input = st.text_input(t["city_label"])
 
 if city_input:
@@ -101,46 +106,56 @@ if city_input:
         weather = get_weather_data(lat, lon)
         
         if weather:
-            st.success(f"{t['found']}: {location['name']}")
+            st.success(f"{t['found']}: {location['name']}, {location.get('country', '')}")
             
-            # Көрсеткіштер
-            c1, c2 = st.columns(2)
+            # Метрикалар
+            col1, col2 = st.columns(2)
             curr_temp = weather['hourly']['temperature_2m'][0]
             curr_wind = weather['hourly']['wind_speed_10m'][0]
+            curr_prec = weather['hourly']['precipitation'][0]
             
-            c1.metric(t["temp"], f"{curr_temp}°C")
-            c2.metric(t["wind"], f"{curr_wind} km/h")
+            col1.metric(t["temp"], f"{curr_temp}°C")
+            col2.metric(t["wind"], f"{curr_wind} km/h")
 
-            # [span_0](start_span)Апат қаупін бағалау (Құжаттағы логика бойынша[span_0](end_span))
+            # Апат қаупін бағалау алгоритмі (Математикалық логика)
             st.subheader(t["risk_lvl"])
-            risk = 0
-            if curr_wind > 50: risk += 40
-            if curr_temp > 35: risk += 30
-            if weather['hourly']['precipitation'][0] > 10: risk += 30
+            risk_score = 0
+            if curr_wind > 50: risk_score += 40
+            if curr_temp > 35: risk_score += 30
+            if curr_prec > 10: risk_score += 30
             
-            if risk >= 60:
-                st.error(f"{t['high_risk']}: {risk}%")
+            if risk_score >= 60:
+                st.error(f"{t['high_risk']}: {risk_score}%")
             else:
-                st.info(f"{t['low_risk']}: {risk}%")
+                st.info(f"{t['low_risk']}: {risk_score}%")
 
-            # График
+            # Температура графигі
             df = pd.DataFrame({
                 'Time': weather['hourly']['time'][:24],
                 'Temp': weather['hourly']['temperature_2m'][:24]
             })
-            st.plotly_chart(px.line(df, x='Time', y='Temp'))
+            fig = px.line(df, x='Time', y='Temp', title="24h Forecast")
+            st.plotly_chart(fig, use_container_width=True)
 
-            # [span_1](start_span)[span_2](start_span)ЖИ болжамы (GPT-4o-mini қолдану[span_1](end_span)[span_2](end_span))
+            # ЖИ Сараптамасы (OpenAI)
+            st.subheader("🤖 AI Analysis")
             if st.button(t["ai_btn"]):
                 if api_key:
-                    client = OpenAI(api_key=api_key)
-                    prompt = f"Analyze weather for {location['name']}: Temp {curr_temp}C, Wind {curr_wind}km/h. Provide disaster risk in {sel_lang}."
-                    res = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":prompt}])
-                    st.write(res.choices[0].message.content)
+                    try:
+                        client = OpenAI(api_key=api_key)
+                        prompt = f"Analyze weather for {location['name']}: Temp {curr_temp}C, Wind {curr_wind}km/h. Disaster risk {risk_score}%. Language: {sel_lang}."
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                        st.write(res.choices[0].message.content)
+                    except Exception as e:
+                        st.error(f"AI Error: {e}")
                 else:
-                    st.warning("Please enter API Key")
+                    st.warning("Please enter OpenAI API Key in sidebar")
     else:
         st.error(t["not_found"])
 
+# 5. ҚОРЫТЫНДЫ
 st.divider()
-[span_3](start_span)st.caption("Guardian AI Weather PRO - Team: Arslan Omen, Imangali Kurbanbek[span_3](end_span)")
+st.caption(t["team"])
