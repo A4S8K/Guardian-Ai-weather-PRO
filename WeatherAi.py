@@ -4,7 +4,6 @@ import requests
 from openai import OpenAI
 import plotly.express as px
 import time
-from datetime import datetime
 
 st.set_page_config(page_title="Guardian AI Weather PRO", page_icon="🌍", layout="wide")
 
@@ -16,7 +15,7 @@ st.markdown("**Арслан Өмен, Иманғали Құрбанбек** • 
 with st.sidebar:
     st.header("⚙️ Параметрлер")
     openai_key = st.text_input("OpenAI API Key (GPT-4o-mini)", type="password", value="")
-    weatherapi_key = st.text_input("8423ffb4493240db85872445260704", type="password", value="")
+    weatherapi_key = st.text_input("WeatherAPI.com API Key", type="password", value="")
     
     if not weatherapi_key:
         st.error("⚠️ WeatherAPI.com API кілтін енгізіңіз!")
@@ -38,7 +37,6 @@ if not city_input.strip():
 # ====================== ДЕРЕКТЕРДІ АЛУ (WeatherAPI) ======================
 @st.cache_data(ttl=1800)
 def fetch_weather_weatherapi(city: str, api_key: str):
-    # Current + Forecast (14 күн)
     url = f"http://api.weatherapi.com/v1/forecast.json?key={api_key}&q={city}&days=7&aqi=yes&alerts=yes&lang=kk"
     
     for attempt in range(3):
@@ -54,12 +52,15 @@ def fetch_weather_weatherapi(city: str, api_key: str):
         except Exception as e:
             if attempt == 2:
                 st.error(f"🌩️ WeatherAPI қатесі: {e}")
-                st.error(f"Жауап: {resp.text if 'resp' in locals() else ''}")
                 st.stop()
             time.sleep(5)
     st.stop()
 
 weather_data = fetch_weather_weatherapi(city_input, weatherapi_key)
+
+# Координаталарды алу (карта үшін)
+lat = weather_data["location"]["lat"]
+lon = weather_data["location"]["lon"]
 
 # ====================== ҚАЗІРГІ ЖАҒДАЙ ======================
 current = weather_data["current"]
@@ -79,7 +80,7 @@ with col4:
 with col5:
     st.metric("🌧️ Жаңбыр", f"{current.get('precip_mm', 0)} мм")
 
-# AQI (WeatherAPI-да aqi=yes қосқандықтан)
+# AQI
 aqi = current.get('air_quality', {}).get('us-epa-index', 0)
 aqi_status = "✅ Жақсы" if aqi <= 2 else "🟡 Орташа" if aqi <= 4 else "🔴 Зиянды"
 st.metric("🌫️ AQI (US EPA)", f"{aqi} — {aqi_status}")
@@ -111,16 +112,16 @@ if client is None:
     ai_analysis = "ЖИ талдауы қолжетімсіз."
 else:
     prompt = f"""
-Сіз — метеорологиялық сарапшысыз. Берілген деректер бойынша табиғи апат қаупін (дауыл, су тасқыны, аптап ыстық, қатты жел, өрт) бағалаңыз.
+Сіз — метеорологиялық сарапшысыз. Берілген деректер бойынша табиғи апат қаупін (дауыл, су тасқыны, аптап ыстық, қатты жел, орман өрті) бағалаңыз.
 
 Қала: {city_input}
 Қазіргі: Температура {current['temp_c']}°C, Ылғалдылық {current['humidity']}%, Жел {current['wind_kph']} км/сағ
 
-Алдағы сағаттардағы орташа температура: {df_hourly.head(24)['temp'].mean():.1f}°C
-Жаңбыр ықтималдығы орташа: {df_hourly.head(24)['precip_prob'].mean():.1f}%
+Алдағы 24 сағаттағы орташа температура: {df_hourly.head(24)['temp'].mean():.1f}°C
+Жаңбыр ықтималдығы (орташа): {df_hourly.head(24)['precip_prob'].mean():.1f}%
 
-Қауіп деңгейін 0-100% есептеңіз. 60%-дан жоғары болса «ЖОҒАРЫ ҚАУІП» деп ескертіңіз.
-Әр апат түріне қысқаша түсініктеме және ұсыныс беріңіз. Жауап **қазақ тілінде** болсын.
+Қауіп деңгейін 0-100% аралығында есептеңіз. 60%-дан жоғары болса «ЖОҒАРЫ ҚАУІП» деп ескертіңіз.
+Әр апат түріне қысқаша түсініктеме және ұсыныс беріңіз. Жауап қазақ тілінде болсын.
 """
     with st.spinner("ЖИ талдау жасап жатыр..."):
         response = client.chat.completions.create(
@@ -134,7 +135,7 @@ else:
 st.markdown("### ЖИ-дың толық сараптамасы")
 st.write(ai_analysis)
 
-if "жоғары қауіп" in ai_analysis.lower() or any(p in ai_analysis for p in ["60%", "70%", "80%", "90%"]):
+if client and ("жоғары қауіп" in ai_analysis.lower() or any(p in ai_analysis for p in ["60%", "70%", "80%", "90%"])):
     st.error("⚠️ ЖОҒАРЫ ҚАУІП! Алдын ала шаралар қабылдаңыз!")
 else:
     st.success("Қауіп деңгейі қалыпты.")
@@ -158,5 +159,14 @@ st.dataframe(df_daily.style.format({
     "precip": "{:.1f} мм", "wind_max": "{:.1f} км/сағ"
 }), use_container_width=True)
 
-st.caption("Дерек көзі: WeatherAPI.com + OpenAI GPT-4o-mini")
-st.success("✅ WeatherAPI нұсқасы іске қосылды! Енді Open-Meteo-дағы 502 қатесі болмауы керек.")
+# ====================== ИНТЕРАКТИВТІ WINDY КАРТАСЫ ======================
+st.header("🗺️ Интерактивті Windy картасы (ауа райы қабаттары)")
+
+windy_url = f"https://embed.windy.com/embed2.html?lat={lat}&lon={lon}&zoom=10&level=surface&overlay=wind&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km/h&metricTemp=C"
+
+st.components.v1.iframe(src=windy_url, height=650, scrolling=True)
+
+st.caption("💡 Картада қабаттарды ауыстырыңыз: Wind, Rain, Temperature, Radar, Clouds, Pressure және т.б. Zoom және жылжыту мүмкіндігі бар.")
+
+# ====================== ҚОСЫМША ======================
+st.caption("Дерек көзі: WeatherAPI.com + Windy.com + OpenAI GPT-4o-mini")
