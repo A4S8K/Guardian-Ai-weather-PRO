@@ -15,10 +15,10 @@ st.markdown("**Арслан Өмен, Иманғали Құрбанбек** • 
 with st.sidebar:
     st.header("⚙️ Параметрлер")
     openai_key = st.text_input("OpenAI API Key (GPT-4o-mini)", type="password", value="")
-    weatherapi_key = st.text_input("Open-MeteoAPI.com API Key", type="password", value="")
+    weatherapi_key = st.text_input("WeatherAPI.com API Key", type="password", value="")
     
     if not weatherapi_key:
-        st.error("⚠️ Open-MeteoAPI.com API кілтін енгізіңіз!")
+        st.error("⚠️ WeatherAPI.com API кілтін енгізіңіз!")
         st.stop()
     
     client = OpenAI(api_key=openai_key) if openai_key else None
@@ -59,16 +59,40 @@ loc = weather_data["location"]
 st.header(f"📊 Қазіргі жағдай — {loc['name']}, {loc['country']} ({current['last_updated']})")
 
 col1, col2, col3, col4, col5 = st.columns(5)
-with col1: st.metric("🌡️ Температура", f"{current['temp_c']}°C", f"Сезіледі: {current['feelslike_c']}°C")
-with col2: st.metric("💧 Ылғалдылық", f"{current['humidity']}%")
-with col3: st.metric("🌬️ Жел", f"{current['wind_kph']} км/сағ ({current['wind_dir']})")
-with col4: st.metric("☁️ Бұлттылық", f"{current['cloud']}%")
-with col5: st.metric("🌧️ Жаңбыр", f"{current.get('precip_mm', 0)} мм")
+with col1:
+    st.metric("🌡️ Температура", f"{current['temp_c']}°C", f"Сезіледі: {current['feelslike_c']}°C")
+with col2:
+    st.metric("💧 Ылғалдылық", f"{current['humidity']}%")
+with col3:
+    st.metric("🌬️ Жел", f"{current['wind_kph']} км/сағ ({current['wind_dir']})")
+with col4:
+    st.metric("☁️ Бұлттылық", f"{current['cloud']}%")
+with col5:
+    st.metric("🌧️ Жаңбыр", f"{current.get('precip_mm', 0)} мм")
 
-# AQI
+# ====================== AQI — ДҰРЫС СТАНДАРТ БОЙЫНША ======================
 aqi = current.get('air_quality', {}).get('us-epa-index', 0)
-aqi_status = "✅ Жақсы" if aqi <= 2 else "🟡 Орташа" if aqi <= 4 else "🔴 Зиянды"
-st.metric("🌫️ AQI (US EPA)", f"{aqi} — {aqi_status}")
+
+if aqi <= 50:
+    aqi_status = "✅ Жақсы"
+    aqi_emoji = "🟢"
+elif aqi <= 100:
+    aqi_status = "🟡 Орташа"
+    aqi_emoji = "🟡"
+elif aqi <= 150:
+    aqi_status = "🟠 Сезімтал топтарға зиянды"
+    aqi_emoji = "🟠"
+elif aqi <= 200:
+    aqi_status = "🔴 Зиянды"
+    aqi_emoji = "🔴"
+elif aqi <= 300:
+    aqi_status = "⚠️ Өте зиянды"
+    aqi_emoji = "🔴"
+else:
+    aqi_status = "🚨 Қауіпті"
+    aqi_emoji = "⚫"
+
+st.metric("🌫️ AQI (US EPA)", f"{aqi} — {aqi_emoji} {aqi_status}")
 
 # ====================== АЛДАҒЫ 24 САҒАТ ГРАФИГІ ======================
 forecast = weather_data["forecast"]["forecastday"]
@@ -87,7 +111,10 @@ for day in forecast:
 df_hourly = pd.DataFrame(hourly_data)
 
 st.subheader("📈 Алдағы 24 сағаттағы температура өзгерісі")
-fig = px.line(df_hourly.head(24), x="time", y="temp", title="", labels={"temp": "Температура (°C)"})
+fig = px.line(df_hourly.head(24), x="time", y="temp", 
+              title="Температура (°C)", 
+              labels={"temp": "Температура (°C)", "time": "Уақыт"})
+fig.update_layout(height=400)
 st.plotly_chart(fig, use_container_width=True)
 
 # ====================== ЖИ ТАЛДАУЫ ======================
@@ -134,11 +161,11 @@ for day in forecast:
     d = day["day"]
     daily_rows.append({
         "Күн": day["date"],
-        "Макс. °C": d["maxtemp_c"],
-        "Мин. °C": d["mintemp_c"],
-        "Жаңбыр (мм)": d["totalprecip_mm"],
-        "Жел макс (км/сағ)": d["maxwind_kph"],
-        "UV": d["uv"]
+        "Макс. температура": f"{d['maxtemp_c']}°C",
+        "Мин. температура": f"{d['mintemp_c']}°C",
+        "Жаңбыр (мм)": f"{d['totalprecip_mm']} мм",
+        "Жел макс (км/сағ)": f"{d['maxwind_kph']} км/сағ",
+        "UV индексі": d["uv"]
     })
 
 df_daily = pd.DataFrame(daily_rows)
